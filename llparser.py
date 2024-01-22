@@ -6,9 +6,6 @@ import doctest
 CACHING_ENABLED = True
 PROC_DEBIG = False
 
-'''
-ошибкой считается тупл у которого первый элемент 'err'
-'''
 class ParseError: # it is not exception
     __slots__ = ['what','details']
     def __init__(self,pos,expected,details=None):
@@ -64,6 +61,8 @@ def cacheread(func):
     
 class AttrOrderedDict(OrderedDict):
     def __getattr__(self, key):
+        if key not in self:
+            raise AttributeError()
         return self[key]
     def __setattr__(self, key, value):
         self[key] = value
@@ -73,6 +72,8 @@ def mkodict(**kwargs):
     return AttrOrderedDict(kwargs)
 class AttrDict(dict):
     def __getattr__(self, key):
+        if key not in self:
+            raise AttributeError()
         return self[key]
     def __setattr__(self, key, value):
         self[key] = value
