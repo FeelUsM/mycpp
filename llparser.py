@@ -1,8 +1,10 @@
-import os
 import re
 import functools
 from collections import OrderedDict
 import doctest
+
+CACHING_ENABLED = True
+PROC_DEBIG = False
 
 '''
 ошибкой считается тупл у которого первый элемент 'err'
@@ -37,8 +39,7 @@ def iserr(x):
 def isok(x):
     return not iserr(x)
 
-CACHING_ENABLED = True
-cacheall = lambda x : functools.cache(x) if CACHING_ENABLED else x
+cacheall = lambda func : functools.cache(func) if CACHING_ENABLED else func
 def cacheread(func):
     if not CACHING_ENABLED:
         return func
@@ -61,19 +62,22 @@ def cacheread(func):
         return memo[start][0]
     return wrapper
     
-class OrderedAttrDict(OrderedDict):
+class AttrOrderedDict(OrderedDict):
     def __getattr__(self, key):
         return self[key]
     def __setattr__(self, key, value):
         self[key] = value
+    def __repr__(self):
+        return 'mkodict('+','.join(k+'='+str(v) for k,v in self.items())+')' # если встретиться ключ, который не является строкой, то будет исключение
 def mkodict(**kwargs):
-    print(type(kwargs))
-    return OrderedAttrDict(kwargs)
+    return AttrOrderedDict(kwargs)
 class AttrDict(dict):
     def __getattr__(self, key):
         return self[key]
     def __setattr__(self, key, value):
         self[key] = value
+    def __repr__(self):
+        return 'mkdict('+','.join(k+'='+str(v) for k,v in self.items())+')' # если встретиться ключ, который не является строкой, то будет исключение
 def mkdict(**kwargs):
     return AttrDict(kwargs)
 def mkpos(x):
@@ -85,7 +89,6 @@ def mkpos(x):
 функции, которые возвращают функцию(s,pos)     - записываются как есть
 если возникет конфликт имён у предыдущих двух случаев, то переменная записывается с префиксом r_
 '''
-@cacheall
 def read(s,pos,patt):
     '''
     fun(params)(s,pos) мы заменяем на
@@ -95,7 +98,11 @@ def read(s,pos,patt):
 def internal_proc(r,proc,errproc):
     if isok(r):
         if proc!=None:
+            if PROC_DEBIG:
+                print('before: ',r,end='')
             r = proc(r)
+            if PROC_DEBIG:
+                print(';   after: ',r)
     else:
         if errproc!=None:
             if type(errproc) is str:
@@ -141,7 +148,7 @@ def fix_str(st):
 def regexp(patt,proc=None,errproc=None):
     '''proc получает на вход match-объект целиком, а без обработки возвращает просто строку'''
     pattern = re.compile(patt)
-    expected = "re r'"+patt+"'"
+    expected = "re "+repr(patt)
     @cacheread
     def r_regexp(s,pos):
         if (r:=pattern.match(s[pos.x:])):
@@ -182,7 +189,7 @@ def read_sequential(s,pos,/,**read_smth):
         else:
             r.expected(start,'some sequence')
             return internal_proc(r,None,errproc)
-    return internal_proc(OrderedAttrDict(rr),proc,errproc)
+    return internal_proc(AttrOrderedDict(rr),proc,errproc)
 @cacheall
 def sequential(**read_smth):
     @cacheread
@@ -214,11 +221,41 @@ def read_oneof(s,pos,*read_smth,proc=None,errproc=None):
     else:
         raise ValueError((pos.x,'ambiguous results ',rr))
 @cacheall
-def oneof(*read_smth):
+def oneof(*read_smth,proc=None,errproc=None):
     @cacheread
     def r_oneof(s,pos):
-        return read_oneof(s,pos,*read_smth)
+        return read_oneof(s,pos,*read_smth,proc=proc,errproc=errproc)
     return r_oneof
+    
+def read_atleast_oneof(s,pos,*read_smth,proc,errproc=None):
+    '''
+    A|B|C
+    параметры могут быть функциями или строками
+    обработчик принимает список пар (результат, позиция окончания)
+    обрабатывает это и возвращает только одну пару (результат, позиция окончания)
+    '''
+    errs = []
+    rr = []
+    start = pos.x
+    for fun in read_smth:
+        if type(fun)==str:
+            fun = fix_str(fun)
+        if isok(r:=fun(s,pos)):
+            rr.append((r,pos.x))
+            pos.x = start
+        else:
+            errs.append(r)
+    if len(rr)==0:
+        return internal_proc(ParseError(pos.x,'one of',errs),proc,errproc)
+    else:
+        rr,pos.x = internal_proc(rr,proc,errproc)
+        return rr
+@cacheall
+def atleast_oneof(*read_smth,proc,errproc=None):
+    @cacheread
+    def r_atleast_oneof(s,pos):
+        return read_atleast_oneof(s,pos,*read_smth,proc=proc,errproc=errproc)
+    return r_atleast_oneof
     
 
 infinity = float('inf')
