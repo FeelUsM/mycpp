@@ -3,9 +3,6 @@ import functools
 from collections import OrderedDict
 import doctest
 
-CACHING_ENABLED = True
-PROC_DEBIG = False
-
 class ParseError: # it is not exception
     __slots__ = ['what','details']
     def __init__(self,pos,expected,details=None):
@@ -36,10 +33,43 @@ def iserr(x):
 def isok(x):
     return not iserr(x)
 
+DEBUGGING = False
+DEBUG_DEPTH = 0
+def debug_start(s,pos,name):
+    pref = '\t'*DEBUG_DEPTH
+    print(pref,s,sep='')
+    print(pref,' '*pos.x,'^-',name,sep='')
+def debug_end(s,start,pos,name,result):
+    pref = '\t'*DEBUG_DEPTH
+    print(pref,s,sep='')
+    if start==pos.x:
+        print(pref,' '*start,'V=',result,sep='')
+    else:
+        print(pref,' '*start,'\\',' '*(pos.x-start-1),'/=',result,sep='')
+    return result
+def debug(func,name=None):
+    if not DEBUGGING:
+        return func
+    if name==None:
+        name = func.__name__
+    @functools.wraps(func)
+    def debug_func(s,p):
+        global DEBUG_DEPTH
+        debug_start(s,p,name)
+        DEBUG_DEPTH+=1
+        start = p.x
+        try:
+            r = func(s,p)
+        finally:
+            DEBUG_DEPTH-=1
+        return debug_end(s,start,p,name,r)
+    return debug_func
+
+CACHING_ENABLED = False
 cacheall = lambda func : functools.cache(func) if CACHING_ENABLED else func
 def cacheread(func):
     if not CACHING_ENABLED:
-        return func
+        return debug(func)
     ref_s = ''
     memo = {}
     @functools.wraps(func)
@@ -57,7 +87,7 @@ def cacheread(func):
             memo[start] = (r,stop)
         pos.x = memo[start][1]
         return memo[start][0]
-    return wrapper
+    return debug(wrapper,func.__name__)
     
 class AttrOrderedDict(OrderedDict):
     def __getattr__(self, key):
@@ -67,7 +97,7 @@ class AttrOrderedDict(OrderedDict):
     def __setattr__(self, key, value):
         self[key] = value
     def __repr__(self):
-        return 'mkodict('+','.join(k+'='+str(v) for k,v in self.items())+')' # если встретиться ключ, который не является строкой, то будет исключение
+        return 'mkodict('+','.join(k+'='+repr(v) for k,v in self.items())+')' # если встретиться ключ, который не является строкой, то будет исключение
 def mkodict(**kwargs):
     return AttrOrderedDict(kwargs)
 class AttrDict(dict):
@@ -78,7 +108,7 @@ class AttrDict(dict):
     def __setattr__(self, key, value):
         self[key] = value
     def __repr__(self):
-        return 'mkdict('+','.join(k+'='+str(v) for k,v in self.items())+')' # если встретиться ключ, который не является строкой, то будет исключение
+        return 'mkdict('+','.join(k+'='+repr(v) for k,v in self.items())+')' # если встретиться ключ, который не является строкой, то будет исключение
 def mkdict(**kwargs):
     return AttrDict(kwargs)
 def mkpos(x):
@@ -90,6 +120,7 @@ def mkpos(x):
 функции, которые возвращают функцию(s,pos)     - записываются как есть
 если возникет конфликт имён у предыдущих двух случаев, то переменная записывается с префиксом r_
 '''
+PROC_DEBUG = False
 def read(s,pos,patt):
     '''
     fun(params)(s,pos) мы заменяем на
@@ -99,10 +130,10 @@ def read(s,pos,patt):
 def internal_proc(r,proc,errproc):
     if isok(r):
         if proc!=None:
-            if PROC_DEBIG:
+            if PROC_DEBUG:
                 print('before: ',r,end='')
             r = proc(r)
-            if PROC_DEBIG:
+            if PROC_DEBUG:
                 print(';   after: ',r)
     else:
         if errproc!=None:
@@ -124,7 +155,7 @@ global_proc = proc
 @cacheall
 def char_in_set(st,proc=None,errproc=None):
     expected = "oneof r'"+st+"'"
-    @cacheread
+    # если вызываешь proc/global_proc, то здесь кэшировать не надо
     def r_char_in_set(s,pos):
         if pos.x==len(s):
             return ParseError(pos.x,expected)
@@ -150,7 +181,7 @@ def regexp(patt,proc=None,errproc=None):
     '''proc получает на вход match-объект целиком, а без обработки возвращает просто строку'''
     pattern = re.compile(patt)
     expected = "re "+repr(patt)
-    @cacheread
+    # если вызываешь proc/global_proc, то здесь кэшировать не надо
     def r_regexp(s,pos):
         if (r:=pattern.match(s[pos.x:])):
             pos.x+=r.end()
@@ -188,7 +219,8 @@ def read_sequential(s,pos,/,**read_smth):
         if isok(r:=fun(s,pos)):
             rr[name]=r
         else:
-            r.expected(start,'some sequence')
+            pos.x = start
+            r.expected(pos.x,'some sequence')
             return internal_proc(r,None,errproc)
     return internal_proc(AttrOrderedDict(rr),proc,errproc)
 @cacheall
@@ -213,6 +245,7 @@ def read_oneof(s,pos,*read_smth,proc=None,errproc=None):
             rr.append((r,pos.x))
             pos.x = start
         else:
+            assert pos.x==start
             errs.append(r)
     if len(rr)==0:
         return internal_proc(ParseError(pos.x,'one of',errs),proc,errproc)
@@ -245,12 +278,13 @@ def read_atleast_oneof(s,pos,*read_smth,proc,errproc=None):
             rr.append((r,pos.x))
             pos.x = start
         else:
+            assert pos.x==start
             errs.append(r)
     if len(rr)==0:
         return internal_proc(ParseError(pos.x,'one of',errs),proc,errproc)
     else:
         rr,pos.x = internal_proc(rr,proc,errproc)
-        return rr
+        return rr #^proc here up
 @cacheall
 def atleast_oneof(*read_smth,proc,errproc=None):
     @cacheread
@@ -266,12 +300,14 @@ def read_repeatedly(s,pos,min,max,patt,proc=None,errproc=None): # posessive
     '''
     rr = []
     i=0
+    start = pos.x
     while i<min:
         if isok(r:=patt(s,pos)):
             rr.append(r)
             i+=1
         else:
-            return r # it is error
+            pos.x = start
+            return internal_proc(r,proc,errproc) # it is error
     while i<max and isok(r:=patt(s,pos)):
         rr.append(r)
         i+=1
@@ -286,29 +322,32 @@ def repeatedly(min,max,patt,proc=None,errproc=None):
 def read_optional(s,pos,patt):
     '''A?'''
     return read_repetedly(s,pos,0,1,patt)
-def read_repeatedly_sep(s,pos,min,max,patt,sep): # posessive
+def read_repeatedly_sep(s,pos,min,max,patt,sep,proc,errproc): # posessive
     '''
     patt?(sep patt){min-1,max-1} # если min==0
     patt(sep patt){min-1,max-1} # если min>0
     '''
     rr = []
     i=0
+    start = pos.x
     if isok(r:=patt(s,pos)):
         rr.append(r)
         i+=1
     else:
         if min==0:
-            return []
+            return internal_proc([],proc,errproc)
         else:
-            return r # it is error
+            assert start==pos.x
+            return internal_proc(r,proc,errproc) # it is error
     while i<min:
         if not isok(r:=sep(s,pos)):
-            return r
+            return internal_proc(r,proc,errproc)
         if isok(r:=patt(s,pos)):
             rr.append(r)
             i+=1
         else:
-            return r # it is error
+            pos.x = start
+            return internal_proc(r,proc,errproc) # it is error
     while i<max:
         xx = pos.x
         if not isok(sep(s,pos)):
@@ -318,30 +357,33 @@ def read_repeatedly_sep(s,pos,min,max,patt,sep): # posessive
             break
         rr.append(r)
         i+=1
-    return rr
-def read_repeatedly_sep_opt(s,pos,min,max,patt,sep): # posessive
+    return internal_proc(rr,proc,errproc)
+def read_repeatedly_sep_opt(s,pos,min,max,patt,sep,proc,errproc): # posessive
     '''
     patt?(sep patt){min-1,max-1}sep? # если min==0
     patt(sep patt){min-1,max-1}sep?  # если min>0
     '''
     rr = []
     i=0
+    start = pos.x
     if isok(r:=patt(s,pos)):
         rr.append(r)
         i+=1
     else:
         if min==0:
-            return []
+            return internal_proc([],proc,errproc)
         else:
-            return r
+            assert start==pos.x
+            return internal_proc(r,proc,errproc) # it is error
     while i<min:
         if not isok(r:=sep(s,pos)):
-            return r
+            return internal_proc(r,proc,errproc)
         if isok(r:=patt(s,pos)):
             rr.append(r)
             i+=1
         else:
-            return r
+            pos.x = start
+            return internal_proc(r,proc,errproc) # it is error
     while i<max:
         xx = pos.x
         if not isok(sep(s,pos)):
@@ -351,9 +393,9 @@ def read_repeatedly_sep_opt(s,pos,min,max,patt,sep): # posessive
             break
         rr.append(r)
         i+=1
-    return rr
+    return internal_proc(rr,proc,errproc)
 def read_repeatedly_further(s,pos,min,max,patt1,patt2):
     '''
     patt1{min,max}patt2 # прекращает парсить сразу как только получилось прочитать patt2
     '''
-    pass
+    raise NotImplementedError()
