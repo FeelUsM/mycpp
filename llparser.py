@@ -295,6 +295,8 @@ if 1: # just for folding
         def seq(s,pos):
             return read_sequential(s,pos,**read_smth)
         return seq
+    read_sequence = read_sequential
+    sequence = sequential
 
 # oneof
 if 1: # just for folding
@@ -496,3 +498,46 @@ if 1: # just for folding
         patt1{min,max}patt2 # прекращает парсить сразу как только получилось прочитать patt2
         '''
         raise NotImplementedError()
+
+# some common processors
+if 1: # just for folding
+    lcat = lambda l : ''.join(l)
+    dcat = lambda d : ''.join(v for k,v in d.items())
+    def lcatf(proc):
+        return lambda l : proc(''.join(l))
+    def dcatf(proc):
+        return lambda d : proc(''.join(v for k,v in d.items()))
+    inthex = lambda x : int(x,16)
+    intoct = lambda x : int(x,8)
+    def dflt(v):
+        return lambda x : x[0] if len(x)==1 else v
+
+    optional= lambda patt,proc=None,errproc=None : repeatedly(0,1,patt,proc,errproc)
+    opt_des = lambda patt : optional(patt,proc=dflt('')) # default empty string
+    rep_cat = lambda min,max,patt : repeatedly(min,max,patt, proc=lcat)
+    seq_cat = lambda **kvargs : sequential(**kvargs,proc=dcat)
+
+    def select_longest(lp):
+        rr=None
+        pp=-1
+        for r,p in lp:
+            if p>pp:
+                pp=p
+                rr=r
+            elif p==pp:
+                raise ValueError('ambiguous results with same length',r,p,rr,pp)
+        return (rr,pp)
+    def compose(*funs):
+        def fun(r):
+            for f in reversed(funs):
+                r=f(r)
+            return r
+        return fun
+    def dict_append(d,**kvargs):
+        for k,v in kvargs.items():
+            d[k]=v
+        return d
+    def dict_delete(d,**kvargs):
+        for k,v in kvargs.items():
+            del d[k]
+        return d
