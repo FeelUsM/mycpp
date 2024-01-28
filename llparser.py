@@ -3,7 +3,35 @@ import functools
 from collections import OrderedDict
 import doctest
 
-if 1: 
+# attr ordered dict
+if 1: # just for folding
+    class AttrOrderedDict(OrderedDict):
+        def __getattr__(self, key):
+            if key not in self:
+                raise AttributeError()
+            return self[key]
+        def __setattr__(self, key, value):
+            self[key] = value
+        def __repr__(self):
+            return 'mkodict('+', '.join(k+'='+repr(v) for k,v in self.items())+')' # если встретиться ключ, который не является строкой, то будет исключение
+    def mkodict(**kwargs):
+        return AttrOrderedDict(kwargs)
+    class AttrDict(dict):
+        def __getattr__(self, key):
+            if key not in self:
+                raise AttributeError()
+            return self[key]
+        def __setattr__(self, key, value):
+            self[key] = value
+        def __repr__(self):
+            return 'mkdict('+', '.join(k+'='+repr(v) for k,v in self.items())+')' # если встретиться ключ, который не является строкой, то будет исключение
+    def mkdict(**kwargs):
+        return AttrDict(kwargs)
+    def mkpos(x):
+        return mkdict(x=x)
+
+# error classes
+if 1: # just for folding
     class ParseError: # it is not exception
         __slots__ = ['what','details']
         def __init__(self,pos,expected,details=None):
@@ -33,7 +61,37 @@ if 1:
         return isinstance(x,ParseError) # type(x) is tuple and len(x)>0 and x[0]=='err'
     def isok(x):
         return not iserr(x)
+    class ProcWarning:
+        '''
+        если какой-то обработчик вернул ProcWarning
+        этот ProcWarning будет записан в WARNINGS
+        после чего из этого ProcWarning будет извлечён результат, который пойдет дальше
+        '''
+        __slots__ = ['mes','res']
+        def __init__(self,res,mes):
+            self.res = res
+            self.mes = mes
+        def __eq__(a,b):
+            return (type(a) is type(b)) and (a.mes==b.mes) and (a.res==b.res)
+        def __repr__(self):
+            return f'ProcWarning({repr(self.res)}, {repr(self.mes)})'
+    class ProcError:
+        '''
+        если какой-то обработчик вернул ProcError, этот ProcError будет распространяться до корня
+        парсинг по правилам дальше будет идти как обычно
+        но обработчики вызываться не будут
+        кроме того этот ProcError будет записан в ERRORS
+        '''
+        __slots__ = ['mes']
+        def __init__(self,mes):
+            self.mes = mes
+        def __eq__(a,b):
+            return (type(a) is type(b)) and (a.mes==b.mes)
+        def __repr__(self):
+            return f'ProcError({repr(self.mes)})'
 
+# debug decorator
+if 1: # just for folding
     DEBUGGING = False
     DEBUG_DEPTH = 0
     def debug_start(s,pos,name):
@@ -66,6 +124,8 @@ if 1:
             return debug_end(s,start,p,name,r)
         return debug_func
 
+# cache decorator
+if 1: # just for folding
     CACHING_ENABLED = False
     cacheall = lambda func : functools.cache(func) if CACHING_ENABLED else func
     def cacheread(func):
@@ -89,38 +149,18 @@ if 1:
             pos.x = memo[start][1]
             return memo[start][0]
         return debug(wrapper,func.__name__)
-        
-    class AttrOrderedDict(OrderedDict):
-        def __getattr__(self, key):
-            if key not in self:
-                raise AttributeError()
-            return self[key]
-        def __setattr__(self, key, value):
-            self[key] = value
-        def __repr__(self):
-            return 'mkodict('+','.join(k+'='+repr(v) for k,v in self.items())+')' # если встретиться ключ, который не является строкой, то будет исключение
-    def mkodict(**kwargs):
-        return AttrOrderedDict(kwargs)
-    class AttrDict(dict):
-        def __getattr__(self, key):
-            if key not in self:
-                raise AttributeError()
-            return self[key]
-        def __setattr__(self, key, value):
-            self[key] = value
-        def __repr__(self):
-            return 'mkdict('+','.join(k+'='+repr(v) for k,v in self.items())+')' # если встретиться ключ, который не является строкой, то будет исключение
-    def mkdict(**kwargs):
-        return AttrDict(kwargs)
-    def mkpos(x):
-        return mkdict(x=x)
 
-    '''
-    функции типа                функция(s,pos,...) - записываются с префиксом read_
-    переменные типа             функция(s,pos)     - записываются как есть
-    функции, которые возвращают функцию(s,pos)     - записываются как есть
-    если возникет конфликт имён у предыдущих двух случаев, то переменная записывается с префиксом r_
-    '''
+# read proc
+if 1: # just for folding
+    ERRORS = {}
+    WARNINGS = {}
+    # индексируются парами (начало, конец) разобранного паттерна
+    def reset_errors_warnings():
+        global ERRORS, WARNINGS
+        ERRORS = {}
+        WARNINGS = {}
+    def get_errors_warnings():
+        return (ERRORS, WARNINGS)
     PROC_DEBUG = False
     def read(s,pos,patt):
         '''
@@ -128,14 +168,22 @@ if 1:
         read(s,pos,fun(params)) 
         '''
         return patt(s,pos)
-    def internal_proc(r,proc,errproc):
+    def internal_proc(r,start,pos,proc,errproc):
+        global ERRORS, WARNINGS
         if isok(r):
             if proc!=None:
-                if PROC_DEBUG:
-                    print('before: ',r,end='')
-                r = proc(r)
-                if PROC_DEBUG:
-                    print(';   after: ',r)
+                if not isinstance(r,ProcError): 
+                    if PROC_DEBUG:
+                        print('before: ',r,end='')
+                    r = proc(r)
+                    if isinstance(r,ProcError):
+                        ERRORS[(start,pos.x)] = r
+                    if isinstance(r,ProcWarning):
+                        WARNINGS[(start,pos.x)] = r
+                        r = r.res
+                    if PROC_DEBUG:
+                        print(';   after: ',r)
+
         else:
             if errproc!=None:
                 if type(errproc) is str:
@@ -144,7 +192,8 @@ if 1:
                     r= errproc(r)
         return r
     def read_proc(s,pos,patt,proc,errproc=None):
-        return internal_proc(patt(s,pos),proc,errproc)
+        start = pos.x
+        return internal_proc(patt(s,pos),start,pos,proc,errproc)
     @cacheall
     def proc(patt,proc,errproc=None):
         @cacheread
@@ -152,7 +201,15 @@ if 1:
             return read_proc(s,pos, patt,proc,errproc)
         return r_proc
     global_proc = proc
-        
+
+'''
+функции типа                функция(s,pos,...) - записываются с префиксом read_
+переменные типа             функция(s,pos)     - записываются как есть
+функции, которые возвращают функцию(s,pos)     - записываются как есть
+если возникет конфликт имён у предыдущих двух случаев, то переменная записывается с префиксом r_
+'''
+# charset str regexp        
+if 1: # just for folding
     @cacheall
     def char_in_set(st,proc=None,errproc=None):
         expected = "oneof r'"+st+"'"
@@ -191,6 +248,8 @@ if 1:
                 return ParseError(pos.x,expected)
         return global_proc(r_regexp,proc if proc!=None else lambda r:r[0]   ,errproc)
 
+# sequence
+if 1: # just for folding
     def read_sequential(s,pos,/,**read_smth):
         '''
         A B C
@@ -212,6 +271,7 @@ if 1:
            
         rr = OrderedDict()
         start = pos.x
+        has_proc_err = None
         for name,fun in read_smth.items():
             #print(name) # enshure that it really preserve order of arguments
             if type(fun)==str:
@@ -219,18 +279,25 @@ if 1:
                 
             if isok(r:=fun(s,pos)):
                 rr[name]=r
+                if isinstance(r,ProcError):
+                    has_proc_err = r
             else:
                 pos.x = start
                 r.expected(pos.x,'some sequence')
-                return internal_proc(r,None,errproc)
-        return internal_proc(AttrOrderedDict(rr),proc,errproc)
+                return internal_proc(r,None,start,pos,errproc)
+        if not (has_proc_err is None):
+            return has_proc_err
+        else:
+            return internal_proc(AttrOrderedDict(rr),start,pos,proc,errproc)
     @cacheall
     def sequential(**read_smth):
         @cacheread
         def seq(s,pos):
             return read_sequential(s,pos,**read_smth)
         return seq
-        
+
+# oneof
+if 1: # just for folding
     def read_oneof(s,pos,*read_smth,proc=None,errproc=None):
         '''
         A|B|C
@@ -249,10 +316,10 @@ if 1:
                 assert pos.x==start
                 errs.append(r)
         if len(rr)==0:
-            return internal_proc(ParseError(pos.x,'one of',errs),proc,errproc)
+            return internal_proc(ParseError(pos.x,'one of',errs),start,pos,proc,errproc)
         elif len(rr)==1:
             pos.x = rr[0][1]
-            return internal_proc(rr[0][0],proc,errproc)
+            return internal_proc(rr[0][0],start,pos,proc,errproc)
         else:
             raise ValueError((pos.x,'ambiguous results ',rr))
     @cacheall
@@ -266,8 +333,8 @@ if 1:
         '''
         A|B|C
         параметры могут быть функциями или строками
-        обработчик принимает список пар (результат, позиция окончания)
-        обрабатывает это и возвращает только одну пару (результат, позиция окончания)
+        обработчик должен принимать список пар (результат, позиция окончания)
+        обрабатывать это и возвращать только одну пару (результат, позиция окончания)
         '''
         errs = []
         rr = []
@@ -282,9 +349,9 @@ if 1:
                 assert pos.x==start
                 errs.append(r)
         if len(rr)==0:
-            return internal_proc(ParseError(pos.x,'one of',errs),proc,errproc)
+            return internal_proc(ParseError(pos.x,'one of',errs),start,pos,proc,errproc)
         else:
-            rr,pos.x = internal_proc(rr,proc,errproc)
+            rr,pos.x = internal_proc(rr,start,pos,proc,errproc)
             return rr #^proc here up
     @cacheall
     def atleast_oneof(*read_smth,proc,errproc=None):
@@ -293,7 +360,8 @@ if 1:
             return read_atleast_oneof(s,pos,*read_smth,proc=proc,errproc=errproc)
         return r_atleast_oneof
         
-
+# repeatedly optional
+if 1: # just for folding
     infinity = float('inf')
     def read_repeatedly(s,pos,min,max,patt,proc=None,errproc=None): # posessive
         '''
@@ -302,27 +370,35 @@ if 1:
         rr = []
         i=0
         start = pos.x
+        has_proc_err = None
         while i<min:
             if isok(r:=patt(s,pos)):
                 rr.append(r)
                 i+=1
+                if isinstance(r,ProcError):
+                    has_proc_err = r
             else:
                 pos.x = start
-                return internal_proc(r,proc,errproc) # it is error
+                return internal_proc(r,start,pos,proc,errproc) # it is error
         while i<max and isok(r:=patt(s,pos)):
             rr.append(r)
             i+=1
-        return internal_proc(rr,proc,errproc)
+            if isinstance(r,ProcError):
+                has_proc_err = r
+        if not (has_proc_err is None):
+            return has_proc_err
+        else:
+            return internal_proc(rr,start,pos,proc,errproc)
     @cacheall
     def repeatedly(min,max,patt,proc=None,errproc=None):
         @cacheread
         def rep(s,pos):
             return read_repeatedly(s,pos,min,max,patt,proc,errproc)
         return rep
-        
     def read_optional(s,pos,patt):
         '''A?'''
         return read_repetedly(s,pos,0,1,patt)
+        
     def read_repeatedly_sep(s,pos,min,max,patt,sep,proc,errproc): # posessive
         '''
         patt?(sep patt){min-1,max-1} # если min==0
@@ -331,24 +407,29 @@ if 1:
         rr = []
         i=0
         start = pos.x
+        has_proc_err = None
         if isok(r:=patt(s,pos)):
             rr.append(r)
             i+=1
+            if isinstance(r,ProcError):
+                has_proc_err = r
         else:
             if min==0:
-                return internal_proc([],proc,errproc)
+                return internal_proc([],start,pos,proc,errproc)
             else:
                 assert start==pos.x
-                return internal_proc(r,proc,errproc) # it is error
+                return internal_proc(r,start,pos,proc,errproc) # it is error
         while i<min:
             if not isok(r:=sep(s,pos)):
-                return internal_proc(r,proc,errproc)
+                return internal_proc(r,start,pos,proc,errproc) # it is error
             if isok(r:=patt(s,pos)):
                 rr.append(r)
                 i+=1
+                if isinstance(r,ProcError):
+                    has_proc_err = r
             else:
                 pos.x = start
-                return internal_proc(r,proc,errproc) # it is error
+                return internal_proc(r,start,pos,proc,errproc) # it is error
         while i<max:
             xx = pos.x
             if not isok(sep(s,pos)):
@@ -357,8 +438,13 @@ if 1:
                 pos.x = xx
                 break
             rr.append(r)
+            if isinstance(r,ProcError):
+                has_proc_err = r
             i+=1
-        return internal_proc(rr,proc,errproc)
+        if not (has_proc_err is None):
+            return has_proc_err
+        else:
+            return internal_proc(rr,start,pos,proc,errproc)
     def read_repeatedly_sep_opt(s,pos,min,max,patt,sep,proc,errproc): # posessive
         '''
         patt?(sep patt){min-1,max-1}sep? # если min==0
@@ -367,24 +453,29 @@ if 1:
         rr = []
         i=0
         start = pos.x
+        has_proc_err = None
         if isok(r:=patt(s,pos)):
             rr.append(r)
             i+=1
+            if isinstance(r,ProcError):
+                has_proc_err = r
         else:
             if min==0:
-                return internal_proc([],proc,errproc)
+                return internal_proc([],start,pos,proc,errproc)
             else:
                 assert start==pos.x
-                return internal_proc(r,proc,errproc) # it is error
+                return internal_proc(r,start,pos,proc,errproc) # it is error
         while i<min:
             if not isok(r:=sep(s,pos)):
-                return internal_proc(r,proc,errproc)
+                return internal_proc(r,start,pos,proc,errproc) # it is error
             if isok(r:=patt(s,pos)):
                 rr.append(r)
                 i+=1
+                if isinstance(r,ProcError):
+                    has_proc_err = r
             else:
                 pos.x = start
-                return internal_proc(r,proc,errproc) # it is error
+                return internal_proc(r,start,pos,proc,errproc) # it is error
         while i<max:
             xx = pos.x
             if not isok(sep(s,pos)):
@@ -393,8 +484,13 @@ if 1:
                 pos.x = xx
                 break
             rr.append(r)
+            if isinstance(r,ProcError):
+                has_proc_err = r
             i+=1
-        return internal_proc(rr,proc,errproc)
+        if not (has_proc_err is None):
+            return has_proc_err
+        else:
+            return internal_proc(rr,start,pos,proc,errproc)
     def read_repeatedly_further(s,pos,min,max,patt1,patt2):
         '''
         patt1{min,max}patt2 # прекращает парсить сразу как только получилось прочитать patt2
