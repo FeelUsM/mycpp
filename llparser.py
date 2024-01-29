@@ -202,6 +202,7 @@ if 1: # cache decorator
         return debug(wrapper,func.__name__)
 
 if 1: # read proc
+    PROC_DEBUG = False
     ERRORS = {}
     WARNINGS = {}
     # индексируются парами (начало, конец) разобранного паттерна
@@ -211,7 +212,6 @@ if 1: # read proc
         WARNINGS = {}
     def get_errors_warnings():
         return (ERRORS, WARNINGS)
-    PROC_DEBUG = False
     def read(s,pos,patt):
         '''
         fun(params)(s,pos) мы заменяем на
@@ -233,7 +233,6 @@ if 1: # read proc
                         r = r.res
                     if PROC_DEBUG:
                         print(';   after: ',r)
-
         else:
             if errproc!=None:
                 if type(errproc) is str:
@@ -243,6 +242,8 @@ if 1: # read proc
                         r = ParseError(r.where,errproc,r)
                 else:
                     r= errproc(r)
+        #assert type(r) is not dict and type(r) is not list and type(r) is not AttrDict and type(r) is not AttrOrderedDict , \
+        #    'result '+repr(type(r))+' '+repr(r)+'should be immutable'
         return r
     def read_proc(s,pos,patt,proc,errproc=None):
         start = pos.x
@@ -260,6 +261,9 @@ if 1: # read proc
 переменные типа             функция(s,pos)     - записываются как есть
 функции, которые возвращают функцию(s,pos)     - записываются как есть
 если возникет конфликт имён у предыдущих двух случаев, то переменная записывается с префиксом r_
+
+для дальнейшего кэширования функции должны возвращать immutable объект
+есть альтернатива: прикэшировании и возвращения из кэшированного делать deepcopy объекта
 '''
 if 1: # charset str regexp
     @cacheall
@@ -335,7 +339,7 @@ if 1: # sequence
             else:
                 pos.x = start
                 r = ParseError(pos.x,'@#$ some sequence',r)
-                return internal_proc(r,start,pos,None,errproc)
+                return internal_proc(r,start,pos,None,errproc) # (r,start,pos,proc,errproc)
         if not (has_proc_err is None):
             return has_proc_err
         else:
@@ -542,7 +546,7 @@ if 1: # repeatedly optional
             return has_proc_err
         else:
             return internal_proc(rr,start,pos,proc,errproc)
-    def read_repeatedly_until(s,pos,min,max,patt1,patt2):
+    def read_repeatedly_until(s,pos,patt1,patt2):
         '''
         patt1{min,max}patt2 # прекращает парсить сразу как только получилось прочитать patt2
         '''
