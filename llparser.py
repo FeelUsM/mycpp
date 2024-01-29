@@ -1,21 +1,10 @@
 import re
 import functools
 from collections import OrderedDict
-import doctest
+#import copy
 
 # attr ordered dict
 if 1: # just for folding
-    class AttrOrderedDict(OrderedDict):
-        def __getattr__(self, key):
-            if key not in self:
-                raise AttributeError()
-            return self[key]
-        def __setattr__(self, key, value):
-            self[key] = value
-        def __repr__(self):
-            return 'mkodict('+', '.join(k+'='+repr(v) for k,v in self.items())+')' # если встретиться ключ, который не является строкой, то будет исключение
-    def mkodict(**kwargs):
-        return AttrOrderedDict(kwargs)
     class AttrDict(dict):
         def __getattr__(self, key):
             if key not in self:
@@ -23,15 +12,78 @@ if 1: # just for folding
             return self[key]
         def __setattr__(self, key, value):
             self[key] = value
+        def __delattr__(self, key):
+            del self[key]
         def __repr__(self):
-            return 'mkdict('+', '.join(k+'='+repr(v) for k,v in self.items())+')' # если встретиться ключ, который не является строкой, то будет исключение
+            return 'mkdict('+', '.join(k+'='+repr(v) for k,v in self.items())+')' 
+            # если встретиться ключ, который не является строкой, то будет исключение
     def mkdict(**kwargs):
         return AttrDict(kwargs)
+    class AttrOrderedDict(OrderedDict):
+        def __getattr__(self, key):
+            if key not in self:
+                raise AttributeError()
+            return self[key]
+        def __setattr__(self, key, value):
+            self[key] = value
+        def __delattr__(self, key):
+            del self[key]
+        def __repr__(self):
+            return 'mkodict('+', '.join(k+'='+repr(v) for k,v in self.items())+')' 
+            # если встретиться ключ, который не является строкой, то будет исключение
+    def mkodict(**kwargs):
+        return AttrOrderedDict(kwargs)
+
+    class FrozenAttrDict(dict):
+        def __getattr__(self, key):
+            if key not in self:
+                raise AttributeError()
+            return self[key]
+        def _immutable(self, *args, **kws):
+            raise TypeError('dict is frozen')
+        __setattr__ = _immutable
+        __delattr__ = _immutable
+        __setitem__ = _immutable
+        __delitem__ = _immutable
+        pop         = _immutable
+        popitem     = _immutable
+        clear       = _immutable
+        update      = _immutable
+        setdefault  = _immutable
+        def __repr__(self):
+            return 'mkfdict('+', '.join(k+'='+repr(v) for k,v in self.items())+')' 
+            # если встретиться ключ, который не является строкой, то будет исключение
+    def mkfdict(**kwargs):
+        return FrozenAttrDict(kwargs)
+    class FrozenAttrOrderedDict(OrderedDict):
+        def __init__(self, *args, **kwargs):
+            super(FrozenAttrOrderedDict, self).__init__(*args, **kwargs)
+            self.__setitem__ = self._immutable
+            self.__setattr__ = self._immutable
+        def __getattr__(self, key):
+            if key not in self:
+                raise AttributeError()
+            return self[key]
+        def _immutable(self, *args, **kws):
+            raise TypeError('dict is frozen')
+        #__setattr__ = _immutable
+        __delattr__ = _immutable
+        #__setitem__ = _immutable
+        __delitem__ = _immutable
+        pop         = _immutable
+        popitem     = _immutable
+        clear       = _immutable
+        update      = _immutable
+        setdefault  = _immutable
+        def __repr__(self):
+            return 'mk_fo_dict('+', '.join(k+'='+repr(v) for k,v in self.items())+')'
+        # если встретиться ключ, который не является строкой, то будет исключение
+    def mk_fo_dict(**kwargs):
+        return FrozenAttrOrderedDict(kwargs)
     def mkpos(x):
         return mkdict(x=x)
 
-# error classes
-if 1: # just for folding
+if 1: # error classes
     class ParseError: # it is not exception
         __slots__ = ['what','details']
         def __init__(self,pos,expected,details=None):
@@ -90,8 +142,7 @@ if 1: # just for folding
         def __repr__(self):
             return f'ProcError({repr(self.mes)})'
 
-# debug decorator
-if 1: # just for folding
+if 1: # debug decorator
     DEBUGGING = False
     DEBUG_DEPTH = 0
     def debug_start(s,pos,name):
@@ -124,8 +175,7 @@ if 1: # just for folding
             return debug_end(s,start,p,name,r)
         return debug_func
 
-# cache decorator
-if 1: # just for folding
+if 1: # cache decorator
     CACHING_ENABLED = False
     cacheall = lambda func : functools.cache(func) if CACHING_ENABLED else func
     def cacheread(func):
@@ -137,7 +187,7 @@ if 1: # just for folding
         def wrapper(s,pos):
             nonlocal ref_s, memo
             # reset memo if we start work with new string
-            if s is not ref_s:
+            if not (s is ref_s):
                 ref_s = s
                 memo = {}
             # add the new key to dict if it doesn't exist already  
@@ -150,8 +200,7 @@ if 1: # just for folding
             return memo[start][0]
         return debug(wrapper,func.__name__)
 
-# read proc
-if 1: # just for folding
+if 1: # read proc
     ERRORS = {}
     WARNINGS = {}
     # индексируются парами (начало, конец) разобранного паттерна
@@ -208,8 +257,7 @@ if 1: # just for folding
 функции, которые возвращают функцию(s,pos)     - записываются как есть
 если возникет конфликт имён у предыдущих двух случаев, то переменная записывается с префиксом r_
 '''
-# charset str regexp        
-if 1: # just for folding
+if 1: # charset str regexp
     @cacheall
     def char_in_set(st,proc=None,errproc=None):
         expected = "oneof r'"+st+"'"
@@ -248,8 +296,7 @@ if 1: # just for folding
                 return ParseError(pos.x,expected)
         return global_proc(r_regexp,proc if proc!=None else lambda r:r[0]   ,errproc)
 
-# sequence
-if 1: # just for folding
+if 1: # sequence
     def read_sequential(s,pos,/,**read_smth):
         '''
         A B C
@@ -274,7 +321,7 @@ if 1: # just for folding
         has_proc_err = None
         for name,fun in read_smth.items():
             #print(name) # enshure that it really preserve order of arguments
-            if type(fun)==str:
+            if type(fun)==str: ## todo убрать преобразования строк в read_fix_str из read_* функций в создающие
                 fun = fix_str(fun)
                 
             if isok(r:=fun(s,pos)):
@@ -298,8 +345,7 @@ if 1: # just for folding
     read_sequence = read_sequential
     sequence = sequential
 
-# oneof
-if 1: # just for folding
+if 1: # oneof
     def read_oneof(s,pos,*read_smth,proc=None,errproc=None):
         '''
         A|B|C
@@ -309,13 +355,13 @@ if 1: # just for folding
         rr = []
         start = pos.x
         for fun in read_smth:
-            if type(fun)==str:
+            if type(fun)==str: ## todo убрать преобразования строк в read_fix_str из read_* функций в создающие
                 fun = fix_str(fun)
             if isok(r:=fun(s,pos)):
                 rr.append((r,pos.x))
                 pos.x = start
             else:
-                assert pos.x==start
+                assert pos.x==start , 'if function return ParseError, it should restore pos'
                 errs.append(r)
         if len(rr)==0:
             return internal_proc(ParseError(pos.x,'one of',errs),start,pos,proc,errproc)
@@ -342,13 +388,13 @@ if 1: # just for folding
         rr = []
         start = pos.x
         for fun in read_smth:
-            if type(fun)==str:
+            if type(fun)==str: ## todo убрать преобразования строк в read_fix_str из read_* функций в создающие
                 fun = fix_str(fun)
             if isok(r:=fun(s,pos)):
                 rr.append((r,pos.x))
                 pos.x = start
             else:
-                assert pos.x==start
+                assert pos.x==start , 'if function return ParseError, it should restore pos'
                 errs.append(r)
         if len(rr)==0:
             return internal_proc(ParseError(pos.x,'one of',errs),start,pos,proc,errproc)
@@ -361,9 +407,8 @@ if 1: # just for folding
         def r_atleast_oneof(s,pos):
             return read_atleast_oneof(s,pos,*read_smth,proc=proc,errproc=errproc)
         return r_atleast_oneof
-        
-# repeatedly optional
-if 1: # just for folding
+
+if 1: # repeatedly optional
     infinity = float('inf')
     def read_repeatedly(s,pos,min,max,patt,proc=None,errproc=None): # posessive
         '''
@@ -399,7 +444,7 @@ if 1: # just for folding
         return rep
     def read_optional(s,pos,patt):
         '''A?'''
-        return read_repetedly(s,pos,0,1,patt)
+        return read_repeatedly(s,pos,0,1,patt)
         
     def read_repeatedly_sep(s,pos,min,max,patt,sep,proc,errproc): # posessive
         '''
@@ -419,7 +464,7 @@ if 1: # just for folding
             if min==0:
                 return internal_proc([],start,pos,proc,errproc)
             else:
-                assert start==pos.x
+                assert start==pos.x , 'if function return ParseError, it should restore pos'
                 return internal_proc(r,start,pos,proc,errproc) # it is error
         while i<min:
             if not isok(r:=sep(s,pos)):
@@ -465,7 +510,7 @@ if 1: # just for folding
             if min==0:
                 return internal_proc([],start,pos,proc,errproc)
             else:
-                assert start==pos.x
+                assert start==pos.x , 'if function return ParseError, it should restore pos'
                 return internal_proc(r,start,pos,proc,errproc) # it is error
         while i<min:
             if not isok(r:=sep(s,pos)):
@@ -493,14 +538,13 @@ if 1: # just for folding
             return has_proc_err
         else:
             return internal_proc(rr,start,pos,proc,errproc)
-    def read_repeatedly_further(s,pos,min,max,patt1,patt2):
+    def read_repeatedly_until(s,pos,min,max,patt1,patt2):
         '''
         patt1{min,max}patt2 # прекращает парсить сразу как только получилось прочитать patt2
         '''
         raise NotImplementedError()
 
-# some common processors
-if 1: # just for folding
+if 1: # some common processors
     lcat = lambda l : ''.join(l)
     dcat = lambda d : ''.join(v for k,v in d.items())
     def lcatf(proc):
@@ -517,10 +561,11 @@ if 1: # just for folding
     rep_cat = lambda min,max,patt : repeatedly(min,max,patt, proc=lcat)
     seq_cat = lambda **kvargs : sequential(**kvargs,proc=dcat)
 
-    def select_longest(lp):
+    def select_longest(list_pairs):
+        'длины [1 3 5] - OK->5; [1 1 3] - неоднозначность'
         rr=None
         pp=-1
-        for r,p in lp:
+        for r,p in list_pairs:
             if p>pp:
                 pp=p
                 rr=r
