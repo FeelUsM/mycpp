@@ -242,8 +242,8 @@ if 1: # read proc
                         r = ParseError(r.where,errproc,r)
                 else:
                     r= errproc(r)
-        #assert type(r) is not dict and type(r) is not list and type(r) is not AttrDict and type(r) is not AttrOrderedDict , \
-        #    'result '+repr(type(r))+' '+repr(r)+'should be immutable'
+        assert type(r) is not dict and type(r) is not list and type(r) is not AttrDict and type(r) is not AttrOrderedDict , \
+            'result '+repr(type(r))+' '+repr(r)+'should be immutable'
         return r
     def read_proc(s,pos,patt,proc,errproc=None):
         start = pos.x
@@ -343,7 +343,7 @@ if 1: # sequence
         if not (has_proc_err is None):
             return has_proc_err
         else:
-            return internal_proc(AttrOrderedDict(rr),start,pos,proc,errproc)
+            return internal_proc(FrozenAttrOrderedDict(rr),start,pos,proc,errproc)
     @cacheall
     def sequential(**read_smth):
         #@cacheread
@@ -372,7 +372,7 @@ if 1: # oneof
                 assert pos.x==start , 'if function return ParseError, it should restore pos'
                 errs.append(r)
         if len(rr)==0:
-            return internal_proc(ParseError(pos.x,'@#$ one of',errs),start,pos,proc,errproc)
+            return internal_proc(ParseError(pos.x,'@#$ one of',tuple(errs)),start,pos,proc,errproc)
         elif len(rr)==1:
             pos.x = rr[0][1]
             return internal_proc(rr[0][0],start,pos,proc,errproc)
@@ -405,10 +405,10 @@ if 1: # oneof
                 assert pos.x==start , 'if function return ParseError, it should restore pos'
                 errs.append(r)
         if len(rr)==0:
-            return internal_proc(ParseError(pos.x,'@#$ one of',errs),start,pos,proc,errproc)
+            return internal_proc(ParseError(pos.x,'@#$ one of',tuple(errs)),start,pos,proc,errproc)
         else:
-            rr,pos.x = internal_proc(rr,start,pos,proc,errproc)
-            return rr #^proc here up
+            rr,pos.x = internal_proc(tuple(rr),start,pos,proc,errproc)
+            return rr # - this is processed result, ^proc here up
     @cacheall
     def atleast_oneof(*read_smth,proc,errproc=None):
         #@cacheread
@@ -443,7 +443,7 @@ if 1: # repeatedly optional
         if not (has_proc_err is None):
             return has_proc_err
         else:
-            return internal_proc(rr,start,pos,proc,errproc)
+            return internal_proc(tuple(rr),start,pos,proc,errproc)
     @cacheall
     def repeatedly(min,max,patt,proc=None,errproc=None):
         #@cacheread
@@ -499,7 +499,7 @@ if 1: # repeatedly optional
         if not (has_proc_err is None):
             return has_proc_err
         else:
-            return internal_proc(rr,start,pos,proc,errproc)
+            return internal_proc(tuple(rr),start,pos,proc,errproc)
     def read_repeatedly_sep_opt(s,pos,min,max,patt,sep,proc,errproc): # posessive
         '''
         patt?(sep patt){min-1,max-1}sep? # если min==0
@@ -545,7 +545,7 @@ if 1: # repeatedly optional
         if not (has_proc_err is None):
             return has_proc_err
         else:
-            return internal_proc(rr,start,pos,proc,errproc)
+            return internal_proc(tuple(rr),start,pos,proc,errproc)
     def read_repeatedly_until(s,pos,patt1,patt2):
         '''
         patt1{min,max}patt2 # прекращает парсить сразу как только получилось прочитать patt2
@@ -587,10 +587,6 @@ if 1: # some common processors
             return r
         return fun
     def dict_append(d,**kvargs):
-        for k,v in kvargs.items():
-            d[k]=v
-        return d
+        return FrozenAttrDict(d|kvargs)
     def dict_delete(d,**kvargs):
-        for k,v in kvargs.items():
-            del d[k]
-        return d
+        return FrozenAttrDict({k:v for k,v in d.items() if k not in kvargs})

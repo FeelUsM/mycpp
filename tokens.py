@@ -181,17 +181,17 @@ if 1: # just for folding
 	def hexadecimal_digit_sequence(s,pos):
 	    '''
 	    >>> ptest(hexadecimal_digit_sequence,'123')
-	    mkdict(v=291, l=3)
+	    mkfdict(v=291, l=3)
 	    >>> ptest(hexadecimal_digit_sequence,'00123')
-	    mkdict(v=291, l=5)
+	    mkfdict(v=291, l=5)
 	    >>> ptest(hexadecimal_digit_sequence,'-123')
 	    Err(0, 'hexadecimal_digit_sequence')
 	    '''
 	    def foo(l):
 	        s = ''.join(l)
-	        return mkdict(v=inthex(s),l=len(s))
+	        return mkfdict(v=inthex(s),l=len(s))
 	    if USE_RE:
-	        return read(s,pos, regexp(r'[0-9a-fA-F]+',proc = lambda x : mkdict(v=int(x[0],16),l=len(x[0])), errproc='hexadecimal_digit_sequence'))
+	        return read(s,pos, regexp(r'[0-9a-fA-F]+',proc = lambda x : mkfdict(v=int(x[0],16),l=len(x[0])), errproc='hexadecimal_digit_sequence'))
 	    else:
 	        return read_repeatedly(s,pos, 1,infinity,hexadecimal_digit, proc=foo, errproc= 'hexadecimal_digit_sequence')
 
@@ -226,9 +226,9 @@ if 1: # just for folding
 	def integer_suffix(s,p):
 	    '''
 	    >>> ptest(integer_suffix,'u')
-	    mkdict(unsigned=True, long=0)
+	    mkfdict(unsigned=True, long=0)
 	    >>> ptest(integer_suffix,'uLL')
-	    mkdict(unsigned=True, long=2)
+	    mkfdict(unsigned=True, long=2)
 	    '''
 	    def final_proc(s):
 	        d = AttrDict()
@@ -236,7 +236,7 @@ if 1: # just for folding
 	        d.long = 2 if 'll' in s or 'LL' in s else \
 	                1 if 'l' in s or 'L' in s else \
 	                0
-	        return d
+	        return FrozenAttrDict(d)
 	    def proc_first(proc):
 	        def f(p):
 	            a,b = p
@@ -258,14 +258,14 @@ if 1: # just for folding
 	def integer_constant(s,p):
 	    '''
 	    >>> ptest(integer_constant,'5')
-	    mkdict(unsigned=False, long=0, value=5)
+	    mkfdict(unsigned=False, long=0, value=5)
 	    >>> ptest(integer_constant,'0x5u')
-	    mkdict(unsigned=True, long=0, value=5)
+	    mkfdict(unsigned=True, long=0, value=5)
 	    >>> ptest(integer_constant,'0')
-	    mkdict(unsigned=False, long=0, value=0)
+	    mkfdict(unsigned=False, long=0, value=0)
 	    '''
 	    return read_sequential(s,p, i=atleast_oneof(decimal_constant,octal_constant,hexadecimal_constant,proc=select_longest), 
-	                                s=optional(integer_suffix,proc=dflt(mkdict(unsigned=False,long=0))),
+	                                s=optional(integer_suffix,proc=dflt(mkfdict(unsigned=False,long=0))),
 	                         proc=lambda d: dict_append(d.s,value=d.i),errproc='integer_constant')
 	    
 # floating_suffix, sign, fractional_constant, exponent_part, decimal_floating_constant, my_hexadecimal_fractional_constant
@@ -304,13 +304,13 @@ if 1: # just for folding
 	def decimal_floating_constant(s,p): # ignore long double ##todo
 	    '''
 	    >>> ptest(decimal_floating_constant,'5e2')
-	    mkodict(value=500.0, type='double')
+	    mk_fo_dict(value=500.0, type='double')
 	    >>> ptest(decimal_floating_constant,'0.f')
-	    mkodict(value=0.0, type='float')
+	    mk_fo_dict(value=0.0, type='float')
 	    >>> ptest(decimal_floating_constant,'0.e') 
 	    Err(2, ' ')
 	    >>> ptest(decimal_floating_constant,'1e-5L')
-	    mkodict(value=1e-05, type='long_double')
+	    mk_fo_dict(value=1e-05, type='long_double')
 	    >>> ptest(decimal_floating_constant,'1')
 	    Err(0, 'decimal_floating_constant')
 	    '''
@@ -337,7 +337,7 @@ if 1: # just for folding
 	    '''
 	    hs = hexadecimal_digit_sequence
 	    return read_oneof(s,p, sequential(a=hs,
-	                                      b=optional(sequential(a='.',b=optional(hs,proc=dflt(mkdict(v=0,l=0))),proc=lambda d: d.b.v/16**d.b.l),proc=dflt(0.)),
+	                                      b=optional(sequential(a='.',b=optional(hs,proc=dflt(mkfdict(v=0,l=0))),proc=lambda d: d.b.v/16**d.b.l),proc=dflt(0.)),
 	                                      proc= lambda d:d.a.v+d.b),
 	                     sequential(a='.',b=hs,proc=lambda d: d.b.v/16**d.b.l),errproc='my_hexadecimal_fractional_constant')
 	@cacheread
@@ -360,13 +360,13 @@ if 1: # just for folding
 	def hexadecimal_floating_constant(s,p): # ignore long double ##todo
 	    '''
 	    >>> ptest(hexadecimal_floating_constant,'0x5p2')
-	    mkdict(value=20.0, type='double')
+	    mkfdict(value=20.0, type='double')
 	    >>> ptest(hexadecimal_floating_constant,'0x0.p0f')
-	    mkdict(value=0.0, type='float')
+	    mkfdict(value=0.0, type='float')
 	    >>> ptest(hexadecimal_floating_constant,'0x0.p') 
 	    Err(0, 'hexadecimal_floating_constant')
 	    >>> ptest(hexadecimal_floating_constant,'0x1p-5L')
-	    mkdict(value=0.03125, type='long_double')
+	    mkfdict(value=0.03125, type='long_double')
 	    >>> ptest(hexadecimal_floating_constant,'0x1')
 	    Err(0, 'hexadecimal_floating_constant')
 	    '''
@@ -376,7 +376,7 @@ if 1: # just for folding
 	        prefix=oneof('0x','0X')
 	    return read_sequence(s,p,pref=prefix,value=my_hexadecimal_fractional_constant,exp=binary_exponent_part,
 	                         type=optional(floating_suffix,proc=dflt('double')), 
-	                         proc=lambda d : mkdict(value=d.value*2**d.exp,type=d.type), 
+	                         proc=lambda d : mkfdict(value=d.value*2**d.exp,type=d.type), 
 	                         errproc='hexadecimal_floating_constant')
 	def floating_constant(s,p):
 	    return read_oneof(s,p,hexadecimal_floating_constant,decimal_floating_constant)
@@ -469,9 +469,9 @@ if 1: # just for folding
 	def character_constant(s,p):
 	    r"""
 	    >>> ptest(character_constant,"'x'")
-	    mkodict(type='char', value='x')
+	    mkfdict(type='char', value='x')
 	    >>> ptest(character_constant,r"U'\n'")
-	    mkodict(type='char32_t', value='\n')
+	    mkfdict(type='char32_t', value='\n')
 	    >>> ptest(character_constant,"'xy'")
 	    Err(0, 'character_constant')
 	    >>> ptest(character_constant,"''")
@@ -485,75 +485,77 @@ if 1: # just for folding
 	def string_literal(s,p):
 	    r"""
 	    >>> ptest(string_literal,'"x"')
-	    mkodict(type='char', value=b'x')
+	    mkfdict(type='char', value=b'x')
 	    >>> ptest(string_literal,r'U"\n"')
-	    mkodict(type='char32_t', value=b'\n\x00\x00\x00')
+	    mkfdict(type='char32_t', value=b'\n\x00\x00\x00')
 	    >>> ptest(string_literal,'"xy"')
-	    mkodict(type='char', value=b'xy')
+	    mkfdict(type='char', value=b'xy')
 	    >>> ptest(string_literal,'""')
-	    mkodict(type='char', value=b'')
+	    mkfdict(type='char', value=b'')
 	    
 	    >>> ptest(string_literal,r'"\x20"')
-	    mkodict(type='char', value=b' ')
+	    mkfdict(type='char', value=b' ')
 	    >>> ptest(string_literal,r'"\x99"')
-	    mkodict(type='char', value=b'\x99')
+	    mkfdict(type='char', value=b'\x99')
 	    >>> ptest(string_literal,r'"\u0100"')
-	    warnings: {(0, 8): ProcWarning(mkodict(type='char', value=b'?'), 'at position 0 ordinal not in range(256)')}
-	    mkodict(type='char', value=b'?')
+	    warnings: {(0, 8): ProcWarning(mkfdict(type='char', value=b'?'), 'at position 0 ordinal not in range(256)')}
+	    mkfdict(type='char', value=b'?')
 
 	    >>> ptest(string_literal,r'u8"\x20"')
-	    mkodict(type='char', value=b' ')
+	    mkfdict(type='char', value=b' ')
 	    >>> ptest(string_literal,r'u8"\x99"')
-	    mkodict(type='char', value=b'\xc2\x99')
+	    mkfdict(type='char', value=b'\xc2\x99')
 	    >>> ptest(string_literal,r'u8"\u0100"')
-	    mkodict(type='char', value=b'\xc4\x80')
+	    mkfdict(type='char', value=b'\xc4\x80')
 	    >>> ptest(string_literal,r'u8"\ud801"')
-	    warnings: {(0, 10): ProcWarning(mkodict(type='char', value=b'\xed\xa0\x81'), 'at position 0 surrogates not allowed')}
-	    mkodict(type='char', value=b'\xed\xa0\x81')
+	    warnings: {(0, 10): ProcWarning(mkfdict(type='char', value=b'\xed\xa0\x81'), 'at position 0 surrogates not allowed')}
+	    mkfdict(type='char', value=b'\xed\xa0\x81')
 
 	    >>> ptest(string_literal,r'u"\x20"')
-	    mkodict(type='char16_t', value=b' \x00')
+	    mkfdict(type='char16_t', value=b' \x00')
 	    >>> ptest(string_literal,r'u"\x99"')
-	    mkodict(type='char16_t', value=b'\x99\x00')
+	    mkfdict(type='char16_t', value=b'\x99\x00')
 	    >>> ptest(string_literal,r'u"\u0100"')
-	    mkodict(type='char16_t', value=b'\x00\x01')
+	    mkfdict(type='char16_t', value=b'\x00\x01')
 	    >>> ptest(string_literal,r'u"\ud801"')
-	    warnings: {(0, 9): ProcWarning(mkodict(type='char16_t', value=b'\x01\xd8'), 'at position 0 surrogates not allowed')}
-	    mkodict(type='char16_t', value=b'\x01\xd8')
+	    warnings: {(0, 9): ProcWarning(mkfdict(type='char16_t', value=b'\x01\xd8'), 'at position 0 surrogates not allowed')}
+	    mkfdict(type='char16_t', value=b'\x01\xd8')
 	    >>> ptest(string_literal,r'u"\U00012282"')
-	    mkodict(type='char16_t', value=b'\x08\xd8\x82\xde')
+	    mkfdict(type='char16_t', value=b'\x08\xd8\x82\xde')
 	    >>> ptest(string_literal,r'u"\U00112222"') ## todo ProcWarning
 	    errors: {(2, 12): ProcError('chr() arg not in range(0x110000)')}
 	    ProcError('chr() arg not in range(0x110000)')
 	    """
 	    def proc_fun(d):
+	        value = d.value
+	        typ = d.type
 	        if d.type=='wchar_t' or d.type=='char32_t':
 	            try:
-	                d.value = d.value.encode(encoding='utf_32_le')
+	                value = d.value.encode(encoding='utf_32_le')
 	            except UnicodeEncodeError as e:
-	                d.value = d.value.encode(encoding='utf_32_le',errors='surrogatepass')
-	                return ProcWarning(d,f'at position {e.start} {e.reason}')
+	                value = d.value.encode(encoding='utf_32_le',errors='surrogatepass')
+	                return ProcWarning(FrozenAttrDict(type=typ,value=value),f'at position {e.start} {e.reason}')
 	        elif d.type=='char16_t':
 	            try:
-	                d.value = d.value.encode(encoding='utf_16_le')
+	                value = d.value.encode(encoding='utf_16_le')
 	            except UnicodeEncodeError as e:
-	                d.value = d.value.encode(encoding='utf_16_le',errors='surrogatepass')
-	                return ProcWarning(d,f'at position {e.start} {e.reason}')
+	                value = d.value.encode(encoding='utf_16_le',errors='surrogatepass')
+	                return ProcWarning(FrozenAttrDict(type=typ,value=value),f'at position {e.start} {e.reason}')
 	        elif d.type=='char8_t':
-	            d.type = 'char'
+	            typ = 'char'
 	            try:
-	                d.value = d.value.encode(encoding='utf_8')
+	                value = d.value.encode(encoding='utf_8')
 	            except UnicodeEncodeError as e:
-	                d.value = d.value.encode(encoding='utf_8',errors='surrogatepass')
-	                return ProcWarning(d,f'at position {e.start} {e.reason}')
+	                value = d.value.encode(encoding='utf_8',errors='surrogatepass')
+	                return ProcWarning(FrozenAttrDict(type=typ,value=value),f'at position {e.start} {e.reason}')
 	        elif d.type=='char':
 	            try:
-	                d.value = d.value.encode(encoding='latin1')
+	                value = d.value.encode(encoding='latin1')
 	            except UnicodeEncodeError as e:
-	                d.value = d.value.encode(encoding='latin1',errors='replace')
-	                return ProcWarning(d,f'at position {e.start} {e.reason}')
+	                value = d.value.encode(encoding='latin1',errors='replace')
+	                return ProcWarning(FrozenAttrDict(type=typ,value=value),f'at position {e.start} {e.reason}')
 	        else: assert False
-	        return d
+	        return FrozenAttrDict(type=typ,value=value)
 	    return read_sequence(s,p, type=optional(proc(atleast_oneof('L','u','U','u8',proc=select_longest),
 	                                lambda x:'wchar_t' if x=='L' else 'char16_t' if x=='u' else 'char32_t' if x=='U' else 'char8_t'),dflt('char')),
 	                        open='"', value=rep_cat(0,infinity,oneof(regexp(r'[^\""\\\n]'),escape_sequence)),close='"',
