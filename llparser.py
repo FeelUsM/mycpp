@@ -85,30 +85,25 @@ if 1: # just for folding
 
 if 1: # error classes
     class ParseError: # it is not exception
-        __slots__ = ['what','details']
+        __slots__ = ['_where','_expected','_details']
         def __init__(self,pos,expected,details=None):
-            self.what = [(pos,expected)] # список где и какой паттерн ожидался
-                                        # при выводе сообщений 'expected ' будет добаляться автоматически (expected!=None)
-            self.details = details # как правило создается в oneof
-                                    # также сюда более сложные сообщения
-        def expected(self,pos,expected):
-            self.what.append((pos,expected))
-            return self
-        def chname(self,expected):
-            '''заменяет expected  в последней причине'''
-            self.what[-1] = (self.what[-1][0],expected)
-            return self
+            self._where = pos
+            self._expected = expected
+            self._details = details
+        @property
+        def where(self): return self._where
+        @property
+        def details(self): return self._details
+        @property
+        def expected(self): return self._expected
+        @expected.setter
+        def expected(self,s):  # утвеждается, что сообщения, начинающиеся на @#$ не кэшируются
+            tmp = f'{repr(self._expected)}{repr(s)}'
+            #assert self._expected.startswith('@#$') and not s.startswith('@#$') , tmp
+            self._expected = s
+        def short(self): return (self._where,self._expected)
         def __repr__(self):
-            return 'parseError'+repr(([x for x in reversed(self.what)],self.details))
-    def parseError(what,details):
-        '''
-        >>> parseError([(0, 'one of')], [parseError([(0, '0x')], None), parseError([(0, '0X')], None)])
-        parseError([(0, 'one of')], [parseError([(0, '0x')], None), parseError([(0, '0X')], None)])
-        '''
-        x = ParseError(0,'')
-        x.what = [x for x in reversed(what)]
-        x.details = details
-        return x
+            return f'ParseError({repr(self._where)}, {repr(self._expected)}, {repr(self._details)})'
     def iserr(x):
         return isinstance(x,ParseError) # type(x) is tuple and len(x)>0 and x[0]=='err'
     def isok(x):
@@ -236,7 +231,7 @@ if 1: # read proc
         else:
             if errproc!=None:
                 if type(errproc) is str:
-                    r.chname(errproc)
+                    r.expected = errproc
                 else:
                     r= errproc(r)
         return r
@@ -330,7 +325,7 @@ if 1: # sequence
                     has_proc_err = r
             else:
                 pos.x = start
-                r.expected(pos.x,'some sequence')
+                r = ParseError(pos.x,'some sequence',r)
                 return internal_proc(r,None,start,pos,errproc)
         if not (has_proc_err is None):
             return has_proc_err

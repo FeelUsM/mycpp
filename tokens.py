@@ -51,13 +51,13 @@ if 1: # just for folding
 	        if rt==rf:
 	            return rt
 	        else:
-	            return mkdict(true=rt,false=rf)
+	            return mkdict(with_re=rt,without_re=rf)
 	    elif not isok(rt) and not isok(rf):
-	        if rt.what[-2]==rf.what[-2]:
-	            return Err(*rt.what[-2])
+	        if rt.details.short()==rf.details.short():
+	            return Err(*rt.details.short())
 	        else:
-	            return mkdict(true=rt,false=rf)
-	    return mkdict(true=rt,false=rf)
+	            return mkdict(with_re=rt,without_re=rf)
+	    return mkdict(with_re=rt,without_re=rf)
 
 # punctuator, digit, hexadecimal_digit, octal_digit, nondigit
 # hexadecimal_prefix, hex_quad, universal_character_name, identifier
