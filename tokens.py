@@ -1,5 +1,4 @@
 import re
-import doctest
 from llparser import *
 
 # test system
@@ -568,4 +567,7 @@ if 1: # just for folding
 	#       !!! этот словарь хранить в переменной pos
 if __name__ == "__main__":
 	import doctest
-	print(doctest.testmod())
+	caching_set(False)
+	print('caching disabled:',doctest.testmod())
+	caching_set(True)
+	print('caching  enabled:',doctest.testmod())

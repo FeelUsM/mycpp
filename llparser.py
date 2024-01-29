@@ -99,7 +99,7 @@ if 1: # error classes
         @expected.setter
         def expected(self,s):  # утвеждается, что сообщения, начинающиеся на @#$ не кэшируются
             tmp = f'{repr(self._expected)}{repr(s)}'
-            #assert self._expected.startswith('@#$') and not s.startswith('@#$') , tmp
+            assert self._expected.startswith('@#$') and not s.startswith('@#$') , tmp
             self._expected = s
         def short(self): return (self._where,self._expected)
         def __repr__(self):
@@ -171,7 +171,10 @@ if 1: # debug decorator
         return debug_func
 
 if 1: # cache decorator
-    CACHING_ENABLED = False
+    CACHING_ENABLED = True
+    def caching_set(x):
+        global CACHING_ENABLED
+        CACHING_ENABLED = x
     cacheall = lambda func : functools.cache(func) if CACHING_ENABLED else func
     def cacheread(func):
         if not CACHING_ENABLED:
@@ -231,7 +234,10 @@ if 1: # read proc
         else:
             if errproc!=None:
                 if type(errproc) is str:
-                    r.expected = errproc
+                    if r.expected==None or r.expected.startswith('@#$'):
+                        r.expected = errproc
+                    else:
+                        r = ParseError(r.where,errproc,r)
                 else:
                     r= errproc(r)
         return r
@@ -255,7 +261,7 @@ if 1: # read proc
 if 1: # charset str regexp
     @cacheall
     def char_in_set(st,proc=None,errproc=None):
-        expected = "oneof r'"+st+"'"
+        expected = "@#$ oneof r'"+st+"'"
         # если вызываешь proc/global_proc, то здесь кэшировать не надо
         def r_char_in_set(s,pos):
             if pos.x==len(s):
@@ -281,7 +287,7 @@ if 1: # charset str regexp
     def regexp(patt,proc=None,errproc=None):
         '''proc получает на вход match-объект целиком, а без обработки возвращает просто строку'''
         pattern = re.compile(patt)
-        expected = "re "+repr(patt)
+        expected = "@#$ re "+repr(patt)
         # если вызываешь proc/global_proc, то здесь кэшировать не надо
         def r_regexp(s,pos):
             if (r:=pattern.match(s[pos.x:])):
@@ -325,8 +331,8 @@ if 1: # sequence
                     has_proc_err = r
             else:
                 pos.x = start
-                r = ParseError(pos.x,'some sequence',r)
-                return internal_proc(r,None,start,pos,errproc)
+                r = ParseError(pos.x,'@#$ some sequence',r)
+                return internal_proc(r,start,pos,None,errproc)
         if not (has_proc_err is None):
             return has_proc_err
         else:
@@ -359,7 +365,7 @@ if 1: # oneof
                 assert pos.x==start , 'if function return ParseError, it should restore pos'
                 errs.append(r)
         if len(rr)==0:
-            return internal_proc(ParseError(pos.x,'one of',errs),start,pos,proc,errproc)
+            return internal_proc(ParseError(pos.x,'@#$ one of',errs),start,pos,proc,errproc)
         elif len(rr)==1:
             pos.x = rr[0][1]
             return internal_proc(rr[0][0],start,pos,proc,errproc)
@@ -392,7 +398,7 @@ if 1: # oneof
                 assert pos.x==start , 'if function return ParseError, it should restore pos'
                 errs.append(r)
         if len(rr)==0:
-            return internal_proc(ParseError(pos.x,'one of',errs),start,pos,proc,errproc)
+            return internal_proc(ParseError(pos.x,'@#$ one of',errs),start,pos,proc,errproc)
         else:
             rr,pos.x = internal_proc(rr,start,pos,proc,errproc)
             return rr #^proc here up
