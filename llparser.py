@@ -193,9 +193,12 @@ if 1: # cache decorator
             if start not in memo:
                 r = func(s,pos)
                 stop = pos.x
-                memo[start] = (r,stop)
-            pos.x = memo[start][1]
-            return memo[start][0]
+                # сообщения, начинающиеся с @#$ не должны кэшироваться
+                assert not r.expected.startswith('@#$') if isinstance(r,ParseError) else True , 'try to cache unnamed function'+r.expected
+                memo[start] = (r,stop) #(copy.deepcopy(r),stop)
+            else:
+                r,pos.x = memo[start]
+            return r
         return debug(wrapper,func.__name__)
 
 if 1: # read proc
@@ -246,10 +249,10 @@ if 1: # read proc
         return internal_proc(patt(s,pos),start,pos,proc,errproc)
     @cacheall
     def proc(patt,proc,errproc=None):
-        @cacheread
+        #@cacheread
         def r_proc(s,pos):
             return read_proc(s,pos, patt,proc,errproc)
-        return r_proc
+        return cacheread(r_proc) if errproc!=None else r_proc
     global_proc = proc
 
 '''
@@ -339,10 +342,10 @@ if 1: # sequence
             return internal_proc(AttrOrderedDict(rr),start,pos,proc,errproc)
     @cacheall
     def sequential(**read_smth):
-        @cacheread
+        #@cacheread
         def seq(s,pos):
             return read_sequential(s,pos,**read_smth)
-        return seq
+        return cacheread(seq) if 'errproc' in read_smth else seq
     read_sequence = read_sequential
     sequence = sequential
 
@@ -373,10 +376,10 @@ if 1: # oneof
             raise ValueError((pos.x,'ambiguous results ',rr))
     @cacheall
     def oneof(*read_smth,proc=None,errproc=None):
-        @cacheread
+        #@cacheread
         def r_oneof(s,pos):
             return read_oneof(s,pos,*read_smth,proc=proc,errproc=errproc)
-        return r_oneof
+        return cacheread(r_oneof) if errproc!=None else r_oneof
         
     def read_atleast_oneof(s,pos,*read_smth,proc,errproc=None):
         '''
@@ -404,10 +407,10 @@ if 1: # oneof
             return rr #^proc here up
     @cacheall
     def atleast_oneof(*read_smth,proc,errproc=None):
-        @cacheread
+        #@cacheread
         def r_atleast_oneof(s,pos):
             return read_atleast_oneof(s,pos,*read_smth,proc=proc,errproc=errproc)
-        return r_atleast_oneof
+        return cacheread(r_atleast_oneof) if errproc!=None else r_atleast_oneof
 
 if 1: # repeatedly optional
     infinity = float('inf')
@@ -439,10 +442,10 @@ if 1: # repeatedly optional
             return internal_proc(rr,start,pos,proc,errproc)
     @cacheall
     def repeatedly(min,max,patt,proc=None,errproc=None):
-        @cacheread
+        #@cacheread
         def rep(s,pos):
             return read_repeatedly(s,pos,min,max,patt,proc,errproc)
-        return rep
+        return cacheread(rep) if errproc!=None else rep
     def read_optional(s,pos,patt):
         '''A?'''
         return read_repeatedly(s,pos,0,1,patt)
