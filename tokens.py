@@ -4,6 +4,8 @@ from llparser import *
 # test system
 if 1: # just for folding
 	USE_RE = True
+	# скорее всего использование регулярных выражений будет более эфективным
+	# но для отладки функций парсинга мы договариваемся вообще не использовать регулярные выражения
 	def re_enable():
 		global USE_RE
 		USE_RE = True
@@ -23,12 +25,12 @@ if 1: # just for folding
 		try:
 			USE_RE = True
 			reset_errors_warnings()
-			rt= read_sequence(string+stopstr,mkpos(0), a=patt,b=' ',proc=lambda d : d.a)
+			rt= read_sequence(string+stopstr,mkpos(0), a=patt,b=stopstr,proc=lambda d : d.a)
 			errors_copy, warnings_copy = get_errors_warnings()
 
 			USE_RE = False
 			reset_errors_warnings()
-			rf= read_sequence(string+stopstr,mkpos(0), a=patt,b=' ',proc=lambda d : d.a)
+			rf= read_sequence(string+stopstr,mkpos(0), a=patt,b=stopstr,proc=lambda d : d.a)
 			ERRORS, WARNINGS = get_errors_warnings()
 			if ERRORS!=errors_copy:
 				print('different errors:')
@@ -477,8 +479,12 @@ if 1: # just for folding
 		>>> ptest(character_constant,"''")
 		Err(0, 'character_constant')
 		"""
+		if USE_RE:
+			char = regexp(r'[^\'\\\n]')
+		else:
+			char = char_not_in_set('\'\\\n')
 		return read_sequence(s,p, type=optional(char_in_set('LuU',proc=lambda x:'wchar_t' if x=='L' else 'char16_t' if x=='u' else 'char32_t'),dflt('char')),
-							open="'", value=oneof(regexp(r'[^\'\\\n]'),escape_sequence),close="'",proc=lambda d: dict_delete(d,open=0,close=0),
+							open="'", value=oneof(char,escape_sequence),close="'",proc=lambda d: dict_delete(d,open=0,close=0),
 							errproc='character_constant')
 
 	@cacheread
@@ -556,17 +562,85 @@ if 1: # just for folding
 					return ProcWarning(FrozenAttrDict(type=typ,value=value),f'at position {e.start} {e.reason}')
 			else: assert False
 			return FrozenAttrDict(type=typ,value=value)
+		if USE_RE:
+			char = regexp(r'[^\"\\\n]')
+		else:
+			char = char_not_in_set("\"\\\n")
 		return read_sequence(s,p, type=optional(proc(atleast_oneof('L','u','U','u8',proc=select_longest),
 									lambda x:'wchar_t' if x=='L' else 'char16_t' if x=='u' else 'char32_t' if x=='U' else 'char8_t'),dflt('char')),
-							open='"', value=rep_cat(0,infinity,oneof(regexp(r'[^\""\\\n]'),escape_sequence)),close='"',
+							open='"', value=rep_cat(0,infinity,oneof(regexp(r'[^\"\\\n]'),escape_sequence)),close='"',
 							proc=lambda d: proc_fun(dict_delete(d,open=0,close=0)),
 							errproc='string_literal')
 
-	## todo char_not_in_set
 	## todo как отдельная экпериментальная ветка (посмотреть на производительность):
 	#       чтобы обработчики могли ощаться через глобальный словарь ENVIRONMENT
 	#       в каждой возможной точке возврата это словарь надо копировать, и при возврате восстанавливать
 	#       !!! этот словарь хранить в переменной pos
+
+if 1:
+	@cacheread
+	def spc(s,p):
+		'''
+		>>> ptest(spc,' ')
+		' '
+		>>> ptest(spc,'.')
+		Err(0, 'spc')
+		'''
+		return read(s,p,char_in_set(' \t\r\n\v',errproc='spc'))
+	@cacheread
+	def spcs(s,p):
+		r'''
+		>>> ptest(spcs,' ',stopstr='-')
+		' '
+		>>> ptest(spcs,' \n ',stopstr='-')
+		' \n '
+		>>> ptest(spcs,'',stopstr='-')
+		''
+		>>> ptest(spcs,'.')
+		Err(0, ' ')
+		'''
+		if USE_RE:
+			return read(s,p,regexp(r'[ \t\r\n\v]*'))
+		else:
+			return read_repeatedly(s,p,0,infinity,spc,proc=lcat,errproc='spcs')
+	end_of_line = oneof('\n','\r\n','\r',end_of_stream)
+	start_oneline_comment = fix_str('//')
+	start_multiline_comment = fix_str('/*')
+	def rest_oneline_comment(s,p):
+		r'''
+		>>> ptest(rest_oneline_comment,'',stopstr='')
+		''
+		>>> ptest(rest_oneline_comment,'qwerk',stopstr='')
+		'qwerk'
+		>>> ptest(rest_oneline_comment,'qwerk\n')
+		'qwerk'
+		'''
+		if USE_RE:
+			return read(s,p,regexp(r'([^\r\n]*)(\r\n|\n|\r)?', lambda x: x[1], errproc='rest_oneline_comment'))
+		else:
+			return read_repeatedly_until(s,p,char_not_in_set('\r\n'),end_of_line, proc = lambda l : lcat(l[:-1]), errproc ='rest_oneline_comment')
+	def rest_multiline_comment(s,p):
+		r'''
+		>>> ptest(rest_multiline_comment,'',stopstr='')
+		mkfdict(text='', finalized=False)
+		>>> ptest(rest_multiline_comment,'qwer',stopstr='')
+		mkfdict(text='qwer', finalized=False)
+		>>> ptest(rest_multiline_comment,'qwer\n')
+		mkfdict(text='qwer', finalized=False)
+		>>> ptest(rest_multiline_comment,'qwer*/')
+		mkfdict(text='qwer', finalized=True)
+		>>> ptest(rest_multiline_comment,'qwer**/')
+		mkfdict(text='qwer*', finalized=True)
+		>>> ptest(rest_multiline_comment,'qwer* /',stopstr='')
+		mkfdict(text='qwer* /', finalized=False)
+		'''
+		if USE_RE:
+			return read(s,p,regexp(r'(((?!\*\/|\n|\r)[^\r\n])*)(\*\/|\n|\r|\r\n|$)',lambda x: mkfdict(text=x[1],finalized=x[3]=='*/'), 
+				errproc ='rest_multiline_comment'))
+		else:
+			return read_repeatedly_until(s,p,char_not_in_set('\r\n'),oneof('*/',end_of_line,proc=lambda x:x=='*/'),
+				proc=lambda l : mkfdict(text=lcat(l[:-1]),finalized=l[-1]), errproc ='rest_multiline_comment'
+			)
 if __name__ == "__main__":
 	import doctest
 	caching_set(False)

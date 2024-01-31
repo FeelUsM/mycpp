@@ -139,18 +139,21 @@ if 1: # error classes
 
 if 1: # debug decorator
 	DEBUGGING = False
+	def debugging_set(x):
+		global DEBUGGING
+		DEBUGGING = x
 	DEBUG_DEPTH = 0
 	def debug_start(s,pos,name):
 		pref = '\t'*DEBUG_DEPTH
-		print(pref,s,sep='')
+		print(pref,s,'|',sep='')
 		print(pref,' '*pos.x,'^-',name,sep='')
 	def debug_end(s,start,pos,name,result):
 		pref = '\t'*DEBUG_DEPTH
-		print(pref,s,sep='')
+		print(pref,s,'|',sep='')
 		if start==pos.x:
-			print(pref,' '*start,'V=',result,sep='')
+			print(pref,' '*start,'V=',repr(result),sep='')
 		else:
-			print(pref,' '*start,'\\',' '*(pos.x-start-1),'/=',result,sep='')
+			print(pref,' '*start,'\\',' '*(pos.x-start-1),'/=',repr(result),sep='')
 		return result
 	def debug(func,name=None):
 		if not DEBUGGING:
@@ -203,6 +206,9 @@ if 1: # cache decorator
 
 if 1: # read proc
 	PROC_DEBUG = False
+	def proc_debug_set(x):
+		global PROC_DEBUG
+		PROC_DEBUG = x
 	ERRORS = {}
 	WARNINGS = {}
 	# индексируются парами (начало, конец) разобранного паттерна
@@ -251,6 +257,7 @@ if 1: # read proc
 	@cacheall
 	def proc(patt,proc,errproc=None):
 		#@cacheread
+		@functools.wraps(patt)
 		def r_proc(s,pos):
 			return read_proc(s,pos, patt,proc,errproc)
 		return cacheread(r_proc) if errproc!=None else r_proc
@@ -280,6 +287,19 @@ if 1: # charset str regexp
 				return ParseError(pos.x,expected)
 		return global_proc(r_char_in_set,proc,errproc)
 	@cacheall
+	def char_not_in_set(st,proc=None,errproc=None):
+		expected = "@#$ not oneof r'"+st+"'"
+		# если вызываешь proc/global_proc, то здесь кэшировать не надо
+		def r_char_not_in_set(s,pos):
+			if pos.x==len(s):
+				return ParseError(pos.x,expected)
+			if (r:=s[pos.x]) not in st:
+				pos.x+=1
+				return r
+			else:
+				return ParseError(pos.x,expected)
+		return global_proc(r_char_not_in_set,proc,errproc)
+	@cacheall
 	def fix_str(st):
 		def r_fix_str(s,pos):
 			if pos.x+len(st) > len(s):
@@ -303,6 +323,12 @@ if 1: # charset str regexp
 			else:
 				return ParseError(pos.x,expected)
 		return global_proc(r_regexp,proc if proc!=None else lambda r:r[0]   ,errproc)
+	def read_end_of_stream(s,pos):
+			if pos.x==len(s):
+				return True
+			else:
+				return ParseError(pos.x,'end of stream')
+	end_of_stream = read_end_of_stream
 
 if 1: # sequence
 	def read_sequential(s,pos,/,**read_smth):
@@ -435,7 +461,10 @@ if 1: # repeatedly optional
 			else:
 				pos.x = start
 				return internal_proc(r,start,pos,proc,errproc) # it is error
+		cur = -1
 		while i<max and isok(r:=patt(s,pos)):
+			if pos.x==cur and max==infinity : raise Exception('infinity loop')
+			cur = pos.x
 			rr.append(r)
 			i+=1
 			if isinstance(r,ProcError):
@@ -546,11 +575,34 @@ if 1: # repeatedly optional
 			return has_proc_err
 		else:
 			return internal_proc(tuple(rr),start,pos,proc,errproc)
-	def read_repeatedly_until(s,pos,patt1,patt2):
+
+	def read_repeatedly_until(s,pos,patt,patt_stop,proc,errproc):
 		'''
-		patt1{min,max}patt2 # прекращает парсить сразу как только получилось прочитать patt2
+		patt*patt_stop # прекращает парсить сразу как только получилось прочитать patt2
+		результат patt_stop добавляет в конец массива результатов patt*
 		'''
-		raise NotImplementedError()
+		start = pos.x
+		rr = []
+		cur = -1
+		while True:
+			if pos.x==cur : raise Exception('infinity loop')
+			cur = pos.x
+			if isok(rs:=patt_stop(s,pos)):
+				rr.append(rs)
+				return internal_proc(tuple(rr),start,pos,proc,errproc)
+			else:
+				pos.x = cur
+				if isok(r:=patt(s,pos)):
+					rr.append(r)
+				else:
+					pos.x = start
+					return ParseError(start,'@#$ repeatedly until',(r,rs))
+	@cacheall
+	def repeatedly_until(patt,patt_stop,proc=None,errproc=None):
+		#@cacheread
+		def repu(s,pos):
+			return read_repeatedly_until(s,pos,patt,patt_stop,proc,errproc)
+		return cacheread(repu) if errproc!=None else repu
 
 if 1: # some common processors
 	lcat = lambda l : ''.join(l)
