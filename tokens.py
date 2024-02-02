@@ -26,12 +26,12 @@ if 1: # just for folding
 			USE_RE = True
 			reset_errors_warnings()
 			rt= read_sequence(string+stopstr,mkpos(0), a=patt,b=stopstr,proc=lambda d : d.a)
-			errors_copy, warnings_copy = get_errors_warnings()
+			rt, errors_copy, warnings_copy = extract_errors_warnings(rt)
 
 			USE_RE = False
 			reset_errors_warnings()
 			rf= read_sequence(string+stopstr,mkpos(0), a=patt,b=stopstr,proc=lambda d : d.a)
-			ERRORS, WARNINGS = get_errors_warnings()
+			rf, ERRORS, WARNINGS = extract_errors_warnings(rf)
 			if ERRORS!=errors_copy:
 				print('different errors:')
 				print('with re:',errors_copy)
@@ -64,7 +64,6 @@ if 1: # just for folding
 # hexadecimal_prefix, hex_quad, universal_character_name, identifier
 if 1: # just for folding
 
-	punctuator        = char_in_set('[](){}<>.,+-&*/~!%=^|?:;#',errproc='punctuator')
 	digit             = char_in_set('0123456789'               ,errproc='digit')
 	hexadecimal_digit = char_in_set('0123456789abcdefABCDEF'   ,errproc='hexadecimal digit')
 	octal_digit       = char_in_set('01234567'                 ,errproc='octal digit')
@@ -137,7 +136,7 @@ if 1: # just for folding
 			return read(s,pos, regexp(r'[a-zA-Z_][a-zA_Z0-9_]*',errproc='identifier')) # without universal character name ##todo
 		else:
 			return read_sequential(s,pos, f=oneof(nondigit,universal_character_name),
-										  s=repeatedly(0,infinity,oneof(nondigit,universal_character_name,digit), proc=lcat ),
+										  s=rep_star(oneof(nondigit,universal_character_name,digit), proc=lcat ),
 								  proc=dcat, errproc= 'identifier'
 								  )
 
@@ -158,7 +157,7 @@ if 1: # just for folding
 		if USE_RE:
 			return read(s,pos, regexp(r'[1-9][0-9]*',proc = lambda x : int(x[0]), errproc='decimal_constant'))
 		else:
-			return read_sequential(s,pos, f=nonzero_digit, s=repeatedly(0,infinity,digit, proc=lcat) ,
+			return read_sequential(s,pos, f=nonzero_digit, s=rep_star(digit, proc=lcat) ,
 								  proc=dcatf(int), errproc= 'decimal_constant'
 								  )
 
@@ -252,9 +251,9 @@ if 1: # just for folding
 		else:
 			lL = char_in_set('lL')
 			uU = char_in_set('uU')
-			return read_atleast_oneof(s,p, seq_cat(a=uU,b=opt_des(atleast_oneof('ll','LL',lL,proc=select_longest))),
-									seq_cat(a=lL,b=opt_des(uU)),
-									seq_cat(a=oneof('ll','LL'),b=opt_des(uU)),
+			return read_atleast_oneof(s,p, a=seq_cat(a=uU,b=opt_des(atleast_oneof(a='ll',b='LL',c=lL,proc=select_longest))),
+									b=seq_cat(a=lL,b=opt_des(uU)),
+									c=seq_cat(a=oneof('ll','LL'),b=opt_des(uU)),
 							  proc=compose(proc_first(final_proc),select_longest),errproc='integer_suffix')
 	@cacheread
 	def integer_constant(s,p):
@@ -266,7 +265,7 @@ if 1: # just for folding
 		>>> ptest(integer_constant,'0')
 		mkfdict(unsigned=False, long=0, value=0)
 		'''
-		return read_sequential(s,p, i=atleast_oneof(decimal_constant,octal_constant,hexadecimal_constant,proc=select_longest),
+		return read_sequential(s,p, i=atleast_oneof(a=decimal_constant,b=octal_constant,c=hexadecimal_constant,proc=select_longest),
 									s=optional(integer_suffix,proc=dflt(mkfdict(unsigned=False,long=0))),
 							 proc=lambda d: dict_append(d.s,value=d.i),errproc='integer_constant')
 
@@ -566,7 +565,7 @@ if 1: # just for folding
 			char = regexp(r'[^\"\\\n]')
 		else:
 			char = char_not_in_set("\"\\\n")
-		return read_sequence(s,p, type=optional(proc(atleast_oneof('L','u','U','u8',proc=select_longest),
+		return read_sequence(s,p, type=optional(proc(atleast_oneof(a='L',b='u',c='U',d='u8',proc=select_longest),
 									lambda x:'wchar_t' if x=='L' else 'char16_t' if x=='u' else 'char32_t' if x=='U' else 'char8_t'),dflt('char')),
 							open='"', value=rep_cat(0,infinity,oneof(regexp(r'[^\"\\\n]'),escape_sequence)),close='"',
 							proc=lambda d: proc_fun(dict_delete(d,open=0,close=0)),
@@ -616,9 +615,9 @@ if 1:
 		'qwerk'
 		'''
 		if USE_RE:
-			return read(s,p,regexp(r'([^\r\n]*)(\r\n|\n|\r)?', lambda x: x[1], errproc='rest_oneline_comment'))
+			return read(s,p,regexp(r'([^\n]*)(\n)?', lambda x: x[1], errproc='rest_oneline_comment'))
 		else:
-			return read_repeatedly_until(s,p,char_not_in_set('\r\n'),end_of_line, proc = lambda l : lcat(l[:-1]), errproc ='rest_oneline_comment')
+			return read_repeatedly_until(s,p,char_not_in_set('\n'),end_of_line, proc = lambda l : lcat(l[:-1]), errproc ='rest_oneline_comment')
 	def rest_multiline_comment(s,p):
 		r'''
 		>>> ptest(rest_multiline_comment,'',stopstr='')
@@ -635,13 +634,26 @@ if 1:
 		mkfdict(text='qwer* /', finalized=False)
 		'''
 		if USE_RE:
-			return read(s,p,regexp(r'(((?!\*\/|\n|\r)[^\r\n])*)(\*\/|\n|\r|\r\n|$)',lambda x: mkfdict(text=x[1],finalized=x[3]=='*/'), 
+			return read(s,p,regexp(r'(((?!\*\/)[^\n])*)(\*\/|\n|$)',lambda x: mkfdict(text=x[1],finalized=x[3]=='*/'), 
 				errproc ='rest_multiline_comment'))
 		else:
 			return read_repeatedly_until(s,p,char_not_in_set('\r\n'),oneof('*/',end_of_line,proc=lambda x:x=='*/'),
 				proc=lambda l : mkfdict(text=lcat(l[:-1]),finalized=l[-1]), errproc ='rest_multiline_comment'
 			)
+	def punctuator(s,p):
+		'''
+		>>> ptest(punctuator,'+')
+		'+'
+		>>> ptest(rep_cat(0,infinity,punctuator),'+++')
+		'+++'
+		>>> ptest(rep_cat(0,infinity,punctuator),'/*+')
+		Err(0, ' ')
+		'''
+		return read_atleast_oneof(s,p, a=char_in_set('[](){}<>.,+-&*/~!%=^|?:;#'), notol=start_oneline_comment, notml=start_multiline_comment,
+			proc=compose(select_longest,filter_not),errproc='punctuator')
+
 if __name__ == "__main__":
+	read('/** @file form3.h',mkpos(0),sequence(a=spcs, b=rep_star(token_s)))
 	import doctest
 	caching_set(False)
 	print('caching disabled:',doctest.testmod())

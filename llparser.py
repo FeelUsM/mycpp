@@ -92,6 +92,10 @@ if 1: # error classes
 			self._details = details
 		@property
 		def where(self): return self._where
+		@where.setter
+		def where(self,x):
+			assert self._where ==-1
+			self._where = x
 		@property
 		def details(self): return self._details
 		@property
@@ -216,8 +220,8 @@ if 1: # read proc
 		global ERRORS, WARNINGS
 		ERRORS = {}
 		WARNINGS = {}
-	def get_errors_warnings():
-		return (ERRORS, WARNINGS)
+	def extract_errors_warnings(r):
+		return (r, ERRORS, WARNINGS)
 	def read(s,pos,patt):
 		'''
 		fun(params)(s,pos) мы заменяем на
@@ -232,6 +236,8 @@ if 1: # read proc
 					if PROC_DEBUG:
 						print('before: ',r,end='')
 					r = proc(r)
+					if isinstance(r,ParseError) and r.where==-1:
+						r.where = start
 					if isinstance(r,ProcError):
 						ERRORS[(start,pos.x)] = r
 					if isinstance(r,ProcWarning):
@@ -271,6 +277,20 @@ if 1: # read proc
 
 для дальнейшего кэширования функции должны возвращать immutable объект
 есть альтернатива: прикэшировании и возвращения из кэшированного делать deepcopy объекта
+
+общие соглашения для функций:
+если функция возвращает ParseError, то она должна восстановить pos.x на start
+Если функция от кого-то получила ProcError,
+	то она дальше всё парсит в обычном порядке, но ничего не обрабатывает. И возвращает полученный ProcError
+Если функция хочет вернуть ProcWarning, то она должна прогнать его через internal_proc
+
+общие соглашения для обработчиков:
+можно вернуть ProcError
+можно результат обернуть в ProcWarning
+а если надо инициировать фатальную ошибку, то можно вернуть ParseError(-1,...)
+??? если proc() вернул ParseError , будет ли он обрабатываться errproc() ???
+
+для обработчиков функции atleast_oneof формат результатов и аргументов обработчиков свой
 '''
 if 1: # charset str regexp
 	@cacheall
@@ -411,36 +431,54 @@ if 1: # oneof
 			return read_oneof(s,pos,*read_smth,proc=proc,errproc=errproc)
 		return cacheread(r_oneof) if errproc!=None else r_oneof
 
-	def read_atleast_oneof(s,pos,*read_smth,proc,errproc=None):
+	def read_atleast_oneof(s,pos,**read_smth):
 		'''
 		A|B|C
 		параметры могут быть функциями или строками
 		обработчик должен принимать список пар (результат, позиция окончания)
 		обрабатывать это и возвращать только одну пару (результат, позиция окончания)
+		взвращает список результатов ## todo улучшить интерфейс
 		'''
-		errs = []
-		rr = []
+		if 'proc' in read_smth:
+			proc = read_smth['proc']
+			del read_smth['proc']
+		else:
+			proc = None
+		if 'errproc' in read_smth:
+			errproc = read_smth['errproc']
+			del read_smth['errproc']
+		else:
+			errproc = None
+
+		rr = {}
+		errs = {}
 		start = pos.x
-		for fun in read_smth:
+		for name,fun in read_smth.items():
+			#print(name) # enshure that it really preserve order of arguments
 			if type(fun)==str: ## todo убрать преобразования строк в read_fix_str из read_* функций в создающие
 				fun = fix_str(fun)
+
 			if isok(r:=fun(s,pos)):
-				rr.append((r,pos.x))
+				rr[name]=(r,pos.x)
 				pos.x = start
 			else:
 				assert pos.x==start , 'if function return ParseError, it should restore pos'
-				errs.append(r)
+				errs[name] = r
 		if len(rr)==0:
-			return internal_proc(ParseError(pos.x,'@#$ one of',tuple(errs)),start,pos,proc,errproc)
+			return internal_proc(ParseError(pos.x,'@#$ at least one of',FrozenAttrDict(errs)),start,pos,proc,errproc)
 		else:
-			rr,pos.x = internal_proc(tuple(rr),start,pos,proc,errproc)
+			res = internal_proc(FrozenAttrDict(rr),start,pos,proc,errproc)
+			if isok(res):
+				rr,pos.x = res
+			else:
+				rr = res
 			return rr # - this is processed result, ^proc here up
 	@cacheall
-	def atleast_oneof(*read_smth,proc,errproc=None):
+	def atleast_oneof(**read_smth):
 		#@cacheread
 		def r_atleast_oneof(s,pos):
-			return read_atleast_oneof(s,pos,*read_smth,proc=proc,errproc=errproc)
-		return cacheread(r_atleast_oneof) if errproc!=None else r_atleast_oneof
+			return read_atleast_oneof(s,pos,**read_smth)
+		return cacheread(r_atleast_oneof) if 'errproc' in read_smth else r_atleast_oneof
 
 if 1: # repeatedly optional
 	infinity = float('inf')
@@ -482,6 +520,8 @@ if 1: # repeatedly optional
 	def read_optional(s,pos,patt):
 		'''A?'''
 		return read_repeatedly(s,pos,0,1,patt)
+	rep_star = lambda patt,proc=None,errproc=None : repeatedly(0,infinity,patt,proc,errproc)
+	rep_plus = lambda patt,proc=None,errproc=None : repeatedly(1,infinity,patt,proc,errproc)
 
 	def read_repeatedly_sep(s,pos,min,max,patt,sep,proc,errproc): # posessive
 		'''
@@ -619,22 +659,34 @@ if 1: # some common processors
 	optional= lambda patt,proc=None,errproc=None : repeatedly(0,1,patt,proc,errproc)
 	opt_des = lambda patt : optional(patt,proc=dflt('')) # default empty string
 	rep_cat = lambda min,max,patt : repeatedly(min,max,patt, proc=lcat)
+	rep_plus_cat = lambda patt : rep_cat(1,infinity,patt)
+	rep_star_cat = lambda patt : rep_cat(0,infinity,patt)
 	seq_cat = lambda **kvargs : sequential(**kvargs,proc=dcat)
 
-	def select_longest(list_pairs):
+	def select_longest(dict_pairs):
 		'длины [1 3 5] - OK->5; [1 1 3] - неоднозначность'
 		rr=None
 		pp=-1
-		for r,p in list_pairs:
+		for name,(r,p) in dict_pairs.items():
 			if p>pp:
 				pp=p
 				rr=r
 			elif p==pp:
 				raise ValueError('ambiguous results with same length',r,p,rr,pp)
 		return (rr,pp)
+	def filter_not(dict_pairs):
+		for name in dict_pairs:
+			if name.startswith('not'):
+				return ParseError(-1,'@#$ not')
+		return dict_pairs
+
 	def compose(*funs):
 		def fun(r):
 			for f in reversed(funs):
+				if isinstance(r,ParseError) or isinstance(r,ProcError):
+					return r
+				elif isinstance(r,ProcWarning):
+					raise NotImplementedException()
 				r=f(r)
 			return r
 		return fun
